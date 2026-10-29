@@ -15,18 +15,28 @@ async function requestJSON(url){
  let timer;const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{if(controller)controller.abort();reject(new Error('timeout'))},15000)});
  try{const response=await Promise.race([fetch(url,controller?{signal:controller.signal}:{}),timeout]);if(response.status===404)return null;if(!response.ok)throw new Error('HTTP '+response.status);return await response.json()}finally{clearTimeout(timer)}
 }
-async function externalEntry(word,followBase=true){
+async function externalEntryExact(word,followBase=true){
  const data=await requestJSON('https://freedictionaryapi.com/api/v1/entries/en/'+encodeURIComponent(word));
  if(!data||!Array.isArray(data.entries)||!data.entries.length)return null;
- const meanings=data.entries.filter(e=>e.language&&e.language.code==='en').map(e=>({partOfSpeech:e.partOfSpeech,definitions:(e.senses||[]).filter(s=>typeof s.definition==='string'&&!/\b(?:fuck\w*|shit\w*|cunt\w*)\b/i.test(s.definition+' '+(s.examples||[]).join(' '))&&!(s.tags||[]).some(t=>/vulgar|offensive|derogatory/i.test(t))).sort((a,b)=>Number(/obsolete|archaic/i.test(a.definition+' '+(a.tags||[]).join(' ')))-Number(/obsolete|archaic/i.test(b.definition+' '+(b.tags||[]).join(' ')))).map(s=>({definition:s.definition,example:(s.examples||[])[0]||''}))})).filter(m=>m.definitions.length);
+ const meanings=data.entries.filter(e=>e.language&&e.language.code==='en').map(e=>({partOfSpeech:e.partOfSpeech==='name'?'proper noun':e.partOfSpeech,definitions:(e.senses||[]).filter(s=>typeof s.definition==='string'&&!/\b(?:fuck\w*|shit\w*|cunt\w*)\b/i.test(s.definition+' '+(s.examples||[]).join(' '))&&!(s.tags||[]).some(t=>/vulgar|offensive|derogatory/i.test(t))).sort((a,b)=>Number(/obsolete|archaic/i.test(a.definition+' '+(a.tags||[]).join(' ')))-Number(/obsolete|archaic/i.test(b.definition+' '+(b.tags||[]).join(' ')))).map(s=>({definition:s.definition,example:(s.examples||[])[0]||''}))})).filter(m=>m.definitions.length);
  if(!meanings.length)return null;
- let entry={meanings,sourceUrls:[data.source?.url||'https://en.wiktionary.org/wiki/'+encodeURIComponent(word)],provider:'FreeDictionaryAPI.com / Wiktionary'};
+ let entry={meanings,displayWord:data.word||word,phonetic:data.entries.flatMap(e=>e.pronunciations||[]).find(p=>p.type==='ipa')?.text||'',sourceUrls:[data.source?.url||'https://en.wiktionary.org/wiki/'+encodeURIComponent(word)],provider:'FreeDictionaryAPI.com / Wiktionary'};
  const definitions=meanings.flatMap(m=>m.definitions);
  const baseMatch=definitions.map(d=>d.definition.match(/^(?:plural of|third-person singular simple present indicative of|simple past(?: tense)?(?: and past participle)? of|past participle of|present participle(?: and gerund)? of) ([a-z'-]+)[.!]?$/i)).find(Boolean);
  if(followBase&&baseMatch&&baseMatch[1]!==word){
   try{const base=await externalEntry(baseMatch[1],false);if(base){entry={...base,sourceUrls:[...entry.sourceUrls,...base.sourceUrls],formNote:'“'+word+'” is a form of “'+baseMatch[1]+'”. Showing the meaning of “'+baseMatch[1]+'”.'}}}catch{}
  }
  return entry;
+}
+async function externalEntry(word,followBase=true){
+ const variants=[word,word.split(/([ '-])/).map(part=>/^[a-z]/i.test(part)?part[0].toUpperCase()+part.slice(1).toLowerCase():part).join('')];
+ if(word.length<=5)variants.push(word.toUpperCase());
+ let error=null,gotResponse=false;
+ for(const spelling of [...new Set(variants)]){
+  try{const entry=await externalEntryExact(spelling,followBase);gotResponse=true;if(entry)return entry}catch(e){error=e}
+ }
+ if(!gotResponse&&error)throw error;
+ return null;
 }
 async function fetchEntry(word){
  let failures=0,notFound=0;
@@ -39,7 +49,7 @@ async function fetchEntry(word){
  if(notFound===2)return null;
  throw new Error(failures?'service':'missing');
 }
-function renderEntry(word,entry){show(word,entry.meanings.slice(0,4),false,entry.phonetic||'',entry.sourceUrls||[],entry.provider||'Wordset / WordNet');if(entry.formNote||entry.fallbackNote)$('status').textContent=[entry.formNote,entry.fallbackNote].filter(Boolean).join(' ')}
+function renderEntry(word,entry){show(word,entry.meanings.slice(0,4),false,entry.phonetic||'',entry.sourceUrls||[],entry.provider||'Wordset / WordNet');if(entry.displayWord&&!entry.formNote)$('result').querySelector('h2').textContent=entry.displayWord;if(entry.formNote||entry.fallbackNote)$('status').textContent=[entry.formNote,entry.fallbackNote].filter(Boolean).join(' ')}
 function searchHelp(word,message,retry){
  $('status').replaceChildren(el('p',message));
  if(retry)$('status').append(button('Try again',()=>lookup(word)));

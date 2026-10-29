@@ -16,7 +16,7 @@ async function fetchEntry(word){
   const controller=typeof AbortController==='function'?new AbortController():null;
   let timer;
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{if(controller)controller.abort();reject(new Error('timeout'))},30000)});
-  const promise=Promise.race([fetch('dictionary/'+letter+'.json',controller?{signal:controller.signal}:{}),timeout])
+  const promise=Promise.race([fetch('dictionary/'+letter+'.json?v=2',controller?{signal:controller.signal}:{}),timeout])
    .then(async response=>{if(!response.ok)throw new Error('service');const data=await response.json();if(!data||typeof data!=='object')throw new Error('service');return data})
    .finally(()=>clearTimeout(timer));
   letterCache.set(letter,promise);promise.catch(()=>letterCache.delete(letter));

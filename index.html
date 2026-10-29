@@ -46,7 +46,7 @@ async function fetchEntry(word){
  try{const letter=word[0];if(!letterCache.has(letter))letterCache.set(letter,requestJSON('dictionary/'+letter+'.json?v=2').catch(e=>{letterCache.delete(letter);throw e}));const data=await letterCache.get(letter);
   if(data&&Object.prototype.hasOwnProperty.call(data,word))return {...data[word],provider:'Wordset / WordNet',fallbackNote:'Online dictionaries could not return a result. Showing a backup definition.'};
  }catch{}
- if(notFound===2)return null;
+ if(notFound>0)return null;
  throw new Error(failures?'service':'missing');
 }
 function renderEntry(word,entry){show(word,entry.meanings.slice(0,4),false,entry.phonetic||'',entry.sourceUrls||[],entry.provider||'Wordset / WordNet');if(entry.displayWord&&!entry.formNote)$('result').querySelector('h2').textContent=entry.displayWord;if(entry.formNote||entry.fallbackNote)$('status').textContent=[entry.formNote,entry.fallbackNote].filter(Boolean).join(' ')}
@@ -54,6 +54,28 @@ function searchHelp(word,message,retry){
  $('status').replaceChildren(el('p',message));
  if(retry)$('status').append(button('Try again',()=>lookup(word)));
  const link=el('a','Open Cambridge Dictionary ↗');link.href='https://dictionary.cambridge.org/dictionary/english/'+encodeURIComponent(word);link.target='_blank';link.rel='noopener';link.style.marginLeft='12px';$('status').append(link);
+}
+function spellingDistance(a,b){
+ const rows=Array.from({length:a.length+1},()=>Array(b.length+1).fill(0));
+ for(let i=0;i<=a.length;i++)rows[i][0]=i;
+ for(let j=0;j<=b.length;j++)rows[0][j]=j;
+ for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++){
+  rows[i][j]=Math.min(rows[i-1][j]+1,rows[i][j-1]+1,rows[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  if(i>1&&j>1&&a[i-1]===b[j-2]&&a[i-2]===b[j-1])rows[i][j]=Math.min(rows[i][j],rows[i-2][j-2]+1);
+ }
+ return rows[a.length][b.length];
+}
+async function suggestSpellings(word,id){
+ let words=new Set(Object.keys(starter));
+ try{
+  const letter=word[0];
+  if(!letterCache.has(letter))letterCache.set(letter,requestJSON('dictionary/'+letter+'.json?v=2').catch(e=>{letterCache.delete(letter);throw e}));
+  const data=await letterCache.get(letter);if(data)Object.keys(data).forEach(w=>words.add(w));
+ }catch{}
+ if(id!==request)return;
+ const limit=word.length<5?1:word.length<10?2:3;
+ const matches=[...words].filter(w=>w!==word&&/^[a-z]+$/.test(w)&&Math.abs(w.length-word.length)<=limit).map(w=>({word:w,distance:spellingDistance(word,w)})).filter(x=>x.distance<=limit).sort((a,b)=>a.distance-b.distance||a.word.length-b.word.length||a.word.localeCompare(b.word)).slice(0,3);
+ if(matches.length){const group=el('div','','chips');group.append(el('span','Did you mean:'));matches.forEach(m=>group.append(button(m.word,()=>lookup(m.word))));$('status').append(group)}
 }
 async function lookup(raw){
  view('explore');let word=raw.trim().toLowerCase(),id=++request;$('query').value=word;$('status').textContent='';$('result').replaceChildren();
@@ -67,7 +89,7 @@ async function lookup(raw){
   if(id!==request)return;
   $('status').textContent=attempt?'The dictionary is taking longer than usual. Trying once more…':'Looking up your word…';
   try{const entry=await fetchEntry(word);if(id!==request)return;
-   if(!entry){searchHelp(word,'We couldn’t find that word. Check the spelling or try its base form (for example, run instead of running).',false);return}
+   if(!entry){searchHelp(word,'We couldn’t find “'+word+'”. Please check the spelling, or try one of the suggestions below.',false);await suggestSpellings(word,id);return}
    remember(word,entry);$('status').textContent='';renderEntry(word,entry);return;
   }catch(error){failure=error}
  }

@@ -18,7 +18,7 @@ async function requestJSON(url){
 async function externalEntry(word,followBase=true){
  const data=await requestJSON('https://freedictionaryapi.com/api/v1/entries/en/'+encodeURIComponent(word));
  if(!data||!Array.isArray(data.entries)||!data.entries.length)return null;
- const meanings=data.entries.filter(e=>e.language&&e.language.code==='en').map(e=>({partOfSpeech:e.partOfSpeech,definitions:(e.senses||[]).filter(s=>typeof s.definition==='string'&&!/\\b(?:fuck\\w*|shit\\w*|cunt\\w*)\\b/i.test(s.definition+' '+(s.examples||[]).join(' '))&&!(s.tags||[]).some(t=>/vulgar|offensive|derogatory/i.test(t))).sort((a,b)=>Number(/obsolete|archaic/i.test(a.definition+' '+(a.tags||[]).join(' ')))-Number(/obsolete|archaic/i.test(b.definition+' '+(b.tags||[]).join(' ')))).map(s=>({definition:s.definition,example:(s.examples||[])[0]||''}))})).filter(m=>m.definitions.length);
+ const meanings=data.entries.filter(e=>e.language&&e.language.code==='en').map(e=>({partOfSpeech:e.partOfSpeech,definitions:(e.senses||[]).filter(s=>typeof s.definition==='string'&&!/\b(?:fuck\w*|shit\w*|cunt\w*)\b/i.test(s.definition+' '+(s.examples||[]).join(' '))&&!(s.tags||[]).some(t=>/vulgar|offensive|derogatory/i.test(t))).sort((a,b)=>Number(/obsolete|archaic/i.test(a.definition+' '+(a.tags||[]).join(' ')))-Number(/obsolete|archaic/i.test(b.definition+' '+(b.tags||[]).join(' ')))).map(s=>({definition:s.definition,example:(s.examples||[])[0]||''}))})).filter(m=>m.definitions.length);
  if(!meanings.length)return null;
  let entry={meanings,sourceUrls:[data.source?.url||'https://en.wiktionary.org/wiki/'+encodeURIComponent(word)],provider:'FreeDictionaryAPI.com / Wiktionary'};
  const definitions=meanings.flatMap(m=>m.definitions);

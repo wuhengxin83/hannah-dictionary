@@ -1,0 +1,56 @@
+name: Publish dictionary with bundled word data
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: dictionary-pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare self-hosted dictionary data
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures, json, pathlib, urllib.request
+          root = pathlib.Path('_site')
+          root.mkdir(exist_ok=True)
+          (root / 'index.html').write_text(pathlib.Path('index.html').read_text())
+          (root / 'dictionary').mkdir(exist_ok=True)
+          def prepare(letter):
+              url = 'https://raw.githubusercontent.com/wordset/wordset-dictionary/4503bfafbe4556361a296b9d368c18168dfb56c3/data/' + letter + '.json'
+              with urllib.request.urlopen(url, timeout=90) as response:
+                  source = json.load(response)
+              result = {}
+              for word, entry in source.items():
+                  meanings = []
+                  for m in entry.get('meanings', [])[:4]:
+                      if m.get('def'):
+                          definition = {'definition': m['def']}
+                          if m.get('example'): definition['example'] = m['example']
+                          meanings.append({'partOfSpeech': m.get('speech_part', ''), 'definitions': [definition]})
+                  if meanings: result[word.lower()] = {'meanings': meanings, 'sourceUrls': ['https://github.com/wordset/wordset-dictionary']}
+              (root / 'dictionary' / (letter + '.json')).write_text(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
+              return len(result)
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              count = sum(pool.map(prepare, 'abcdefghijklmnopqrstuvwxyz'))
+          assert count > 50000, count
+          print('Bundled', count, 'dictionary entries')
+          (root / 'dictionary' / 'LICENSE.txt').write_text(pathlib.Path('WORDSET-LICENSE.txt').read_text())
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
